@@ -1,11 +1,25 @@
 import cv2
+import numpy as np
 
-# Load face detection model
+# ---------- FACE MODEL ----------
 face_cascade = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
 )
 
-# Open webcam
+# ---------- OBJECT MODEL ----------
+net = cv2.dnn.readNetFromCaffe(
+    "MobileNetSSD_deploy.prototxt",
+    "MobileNetSSD_deploy.caffemodel"
+)
+
+# COCO class labels (limited – appliances focused)
+CLASSES = [
+    "background", "aeroplane", "bicycle", "bird", "boat",
+    "bottle", "bus", "car", "cat", "chair",
+    "cow", "diningtable", "dog", "horse", "motorbike",
+    "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"
+]
+
 cap = cv2.VideoCapture(0)
 
 while True:
@@ -13,21 +27,63 @@ while True:
     if not ret:
         break
 
-    # Convert to grayscale
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    (h, w) = frame.shape[:2]
 
-    # Detect faces
+    # ---------- FACE DETECTION ----------
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
-    # Draw rectangle around face
-    for (x, y, w, h) in faces:
-        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+    for (x, y, fw, fh) in faces:
+        cv2.rectangle(frame, (x, y), (x+fw, y+fh), (0, 255, 0), 2)
+        cv2.putText(
+            frame,
+            "FACE",
+            (x, y-10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2
+        )
 
-    # Show output
-    cv2.imshow("Basic Face Detection", frame)
+    # ---------- OBJECT DETECTION ----------
+    blob = cv2.dnn.blobFromImage(
+        cv2.resize(frame, (300, 300)),
+        0.007843,
+        (300, 300),
+        127.5
+    )
 
-    # Press q to exit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    net.setInput(blob)
+    detections = net.forward()
+
+    for i in range(detections.shape[2]):
+        confidence = detections[0, 0, i, 2]
+
+        if confidence > 0.5:
+            idx = int(detections[0, 0, i, 1])
+            label = CLASSES[idx]
+
+            # Only show useful objects
+            if label in ["person", "chair", "tvmonitor", "bottle", "sofa", "diningtable", "pottedplant", "laptop"]:
+                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+                (startX, startY, endX, endY) = box.astype("int")
+
+                cv2.rectangle(frame, (startX, startY), (endX, endY), (255, 0, 0), 2)
+
+                text = f"{label.upper()} : {confidence:.2f}"
+                cv2.putText(
+                    frame,
+                    text,
+                    (startX, startY - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (255, 0, 0),
+                    2
+                )
+
+    cv2.imshow("Face + Home Appliances Detection", frame)
+
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
 cap.release()
