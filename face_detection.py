@@ -1,24 +1,13 @@
 import cv2
-import numpy as np
+from ultralytics import YOLO
 
-# ---------- FACE MODEL ----------
+# Load YOLOv8 nano model (small & fast)
+model = YOLO("yolov8n.pt")
+
+# Face detector
 face_cascade = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
 )
-
-# ---------- OBJECT MODEL ----------
-net = cv2.dnn.readNetFromCaffe(
-    "MobileNetSSD_deploy.prototxt",
-    "MobileNetSSD_deploy.caffemodel"
-)
-
-# COCO class labels (limited – appliances focused)
-CLASSES = [
-    "background", "aeroplane", "bicycle", "bird", "boat",
-    "bottle", "bus", "car", "cat", "chair",
-    "cow", "diningtable", "dog", "horse", "motorbike",
-    "person", "pottedplant", "sheep", "sofa", "train", "tvmonitor"
-]
 
 cap = cv2.VideoCapture(0)
 
@@ -27,61 +16,40 @@ while True:
     if not ret:
         break
 
-    (h, w) = frame.shape[:2]
+    # ---------- PERSON DETECTION (YOLO) ----------
+    results = model(frame, conf=0.5, classes=[0])  # class 0 = person
+
+    for r in results:
+        for box in r.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+            cv2.putText(
+                frame,
+                "HUMAN",
+                (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 0, 0),
+                2
+            )
 
     # ---------- FACE DETECTION ----------
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
-    for (x, y, fw, fh) in faces:
-        cv2.rectangle(frame, (x, y), (x+fw, y+fh), (0, 255, 0), 2)
+    for (x, y, w, h) in faces:
+        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
         cv2.putText(
             frame,
             "FACE",
-            (x, y-10),
+            (x, y - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
+            0.6,
             (0, 255, 0),
             2
         )
 
-    # ---------- OBJECT DETECTION ----------
-    blob = cv2.dnn.blobFromImage(
-        cv2.resize(frame, (300, 300)),
-        0.007843,
-        (300, 300),
-        127.5
-    )
-
-    net.setInput(blob)
-    detections = net.forward()
-
-    for i in range(detections.shape[2]):
-        confidence = detections[0, 0, i, 2]
-
-        if confidence > 0.5:
-            idx = int(detections[0, 0, i, 1])
-            label = CLASSES[idx]
-
-            # Only show useful objects
-            if label in ["person", "chair", "tvmonitor", "bottle", "sofa", "diningtable", "pottedplant", "laptop"]:
-                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-                (startX, startY, endX, endY) = box.astype("int")
-
-                cv2.rectangle(frame, (startX, startY), (endX, endY), (255, 0, 0), 2)
-
-                text = f"{label.upper()} : {confidence:.2f}"
-                cv2.putText(
-                    frame,
-                    text,
-                    (startX, startY - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (255, 0, 0),
-                    2
-                )
-
-    cv2.imshow("Face + Home Appliances Detection", frame)
+    cv2.imshow("Accurate Human & Face Detection", frame)
 
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
